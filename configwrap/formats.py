@@ -79,5 +79,80 @@ class ConfFormat:
         return "true" if value is True else "false" if value is False else str(value)
 
 
+def _css_var_to_key(css_name: str) -> str:
+    """--ui-accent-color -> ui.accent_color, --font-size -> font_size."""
+    name = css_name.strip()
+    if name.startswith("--"):
+        name = name[2:]
+    parts = name.split("-")
+    if len(parts) <= 1:
+        return name.replace("-", "_")
+    if len(parts) == 2:
+        return "_".join(parts)
+    return parts[0] + "." + "_".join(parts[1:])
+
+
+def _key_to_css_var(key: str) -> str:
+    """ui.accent_color -> --ui-accent-color, accent_color -> --accent-color."""
+    name = key.replace(".", "-").replace("_", "-")
+    return "--" + name
+
+
+class CssVarsFormat:
+    """CSS custom properties: :root { --var-name: value; }. Keys as ui.accent_color."""
+
+    ROOT_BLOCK = re.compile(
+        r":root\s*\{([^}]*)\}",
+        re.DOTALL | re.IGNORECASE,
+    )
+    VAR_LINE = re.compile(
+        r"--([a-zA-Z0-9_-]+)\s*:\s*([^;]+);",
+    )
+
+    def load(self, path: Path) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if not path.exists():
+            return result
+        text = path.read_text(encoding="utf-8")
+        for block in self.ROOT_BLOCK.finditer(text):
+            for m in self.VAR_LINE.finditer(block.group(1)):
+                css_name = "--" + m.group(1)
+                raw = m.group(2).strip().strip('"\'')
+                result[_css_var_to_key(css_name)] = self._cast(raw)
+        return result
+
+    def _cast(self, raw: str) -> Any:
+        raw = raw.strip()
+        if raw.lower() in ("true", "yes", "on"):
+            return True
+        if raw.lower() in ("false", "no", "off"):
+            return False
+        for fn in (int, float):
+            try:
+                return fn(raw)
+            except ValueError:
+                pass
+        return raw
+
+    def save(self, path: Path, data: Dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = [":root {"]
+        for k, v in sorted(data.items()):
+            var_name = _key_to_css_var(k)
+            lines.append(f"  {var_name}: {self._fmt(v)};")
+        lines.append("}")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _fmt(self, value: Any) -> str:
+        if isinstance(value, str) and (" " in value or ";" in value or value.startswith("var(")):
+            return f'"{value}"'
+        return "true" if value is True else "false" if value is False else str(value)
+
+
 def get_format_for_path(path: Path) -> FormatHandler:
-    return JsonFormat() if path.suffix.lower() == ".json" else ConfFormat()
+    suf = path.suffix.lower()
+    if suf == ".json":
+        return JsonFormat()
+    if suf == ".css":
+        return CssVarsFormat()
+    return ConfFormat()

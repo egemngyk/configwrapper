@@ -32,10 +32,13 @@ Config ve ayar dosyalarındaki değişkenleri tek bir API ile yönetmek için Py
 
 ```text
 configwrap/
-├── main.py                 # Çalıştırma / örnek
-├── config/                 # Veri dosyaları (.json, .conf)
+├── main.py                     # Çalıştırma / örnek
+├── config/                     # Veri dosyaları (.json, .conf, .css)
 │   ├── app.conf
-│   └── theme.json
+│   ├── theme.json
+│   └── themes/
+│       ├── base.css           # Base tema (parent) CSS değişkenleri
+│       └── app.css            # Uygulama teması (child, override)
 ├── configwrap/             # Paket
 │   ├── __init__.py
 │   ├── core.py
@@ -50,11 +53,13 @@ configwrap/
 
 ## Temel kavramlar
 
-| Kavram        | Açıklama                                                                                             |
-| ------------- | ---------------------------------------------------------------------------------------------------- |
-| **Dosya**     | Değerlerin saklandığı dosya (örn. `config/app.conf`). JSON veya conf formatında.                     |
-| **Structure** | Hangi değişkenlerin olacağı ve varsayılan değerleri. Python `dict`: `{"theme": "dark", "size": 14}`. |
-| **Core**      | Dosya ile structure'ı birleştirir. `get`, `set`, `save` vb. tüm işlemler Core üzerinden.             |
+| Kavram           | Açıklama                                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Dosya**        | Değerlerin saklandığı dosya (örn. `config/app.conf`). JSON, conf veya CSS vars formatında olabilir.           |
+| **Structure**    | Hangi değişkenlerin olacağı ve varsayılan değerleri. Python `dict`: `{"theme": "dark", "size": 14}`.          |
+| **Core**         | Dosya ile structure'ı birleştirir. `get`, `set`, `save` vb. tüm işlemler Core üzerinden.                      |
+| **Parent Core**  | Opsiyonel parent dosya/Core. Önce parent değerleri gelir, child sadece override ettiği alanları değiştirir.   |
+| **CSS vars**     | CSS custom property'ler (`:root { --isim: değer; }`) ile `ui.accent_color`, `font_size` gibi anahtar eşlemesi. |
 
 > **Özet:** “Bu dosyada şu değişkenler olsun, varsayılanları bunlar” diye structure tanımlarsın; Core dosyayı okuyup yazar ve değişkenleri yönetir.
 
@@ -181,19 +186,93 @@ c.log_debug("theme = %s", c.get("theme"))
 
 ### 8. Dosya formatları
 
-| Uzantı              | Format | Açıklama                                                     |
-| ------------------- | ------ | ------------------------------------------------------------ |
-| `.json`             | JSON   | Key–value.                                                   |
-| `.conf` / uzantısız | Conf   | `key=value` veya `key: value`, `[section]`, `#` / `;` yorum. |
+| Uzantı              | Format   | Açıklama                                                              |
+| ------------------- | -------- | --------------------------------------------------------------------- |
+| `.json`             | JSON     | Key–value.                                                            |
+| `.conf` / uzantısız | Conf     | `key=value` veya `key: value`, `[section]`, `#` / `;` yorum.          |
+| `.css`              | CSS vars | `:root { --var-isim: değer; }` formatında CSS değişkenleri (config). |
 
 Formatı zorlamak için:
 
 ```python
 c = Core("config/ayar.conf", VARS, format="conf")
 c = Core("config/ayar.json", VARS, format="json")
+c = Core("config/tema.css", VARS, format="css")
 ```
 
 Bölümlü conf: structure'da `"ui.theme": "dark"` → dosyada `[ui]` altında `theme=dark`.
+
+### 9. Parent config (miras alma)
+
+Bir Core'a **parent** dosya veya Core verebilirsin. Önce parent'ın verisi yüklenir, child dosya sadece kendi yazdıklarını override eder:
+
+```python
+from pathlib import Path
+from configwrap import Core
+
+BASE = Path(__file__).parent
+
+PARENT_CONF = BASE / "config" / "base.conf"
+CHILD_CONF = BASE / "config" / "app.conf"
+VARS = {"theme": "dark", "font_size": 14}
+
+parent = Core(str(PARENT_CONF), VARS)
+child = Core(str(CHILD_CONF), VARS, parent=str(PARENT_CONF))  # veya parent=parent
+
+# Önce child'dan, yoksa parent'tan okur
+print(child.get("theme"))
+
+# Sadece child dosyasını değiştirir
+child.set("theme", "light")
+child.save()
+```
+
+### 10. Tema için CSS değişkenleri
+
+`CssVarsFormat` ile **CSS custom property** (`--var`) değerlerini de aynı Core API'si ile yönetebilirsin:
+
+```python
+from pathlib import Path
+from configwrap import Core
+
+BASE = Path(__file__).parent
+
+CSS_BASE = BASE / "config" / "themes" / "base.css"  # parent tema
+CSS_APP = BASE / "config" / "themes" / "app.css"    # child tema
+
+CSS_VARS = {
+    "theme": "dark",
+    "font_size": 14,
+    "ui.accent_color": "#3498db",
+    "ui.sidebar_width": 240,
+}
+
+# Base tema (tüm varsayılan CSS değişkenleri)
+base_theme = Core(str(CSS_BASE), CSS_VARS, format="css")
+
+# Uygulama teması base.css'ten miras alır, sadece override ettiği alanları yazar
+app_theme = Core(str(CSS_APP), CSS_VARS, format="css", parent=str(CSS_BASE))
+
+app_theme.info("Tema dosyası: %s", app_theme.file_path)
+app_theme.info("  theme = %s", app_theme.get("theme"))
+app_theme.info("  ui.accent_color = %s", app_theme.get("ui.accent_color"))
+
+# Sadece değiştirmek istediklerini set et; diğerleri parent'ta kalır
+app_theme.set("theme", "light")
+app_theme.set("ui.accent_color", "#e74c3c")
+app_theme.save()
+```
+
+Bu script, aşağıya benzer bir CSS üretir:
+
+```css
+:root {
+  --font-size: 14;
+  --theme: light;
+  --ui-accent-color: #e74c3c;
+  --ui-sidebar-width: 240;
+}
+```
 
 ---
 

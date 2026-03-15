@@ -1,10 +1,16 @@
 """Variable manager. debug=core_config or override; info/warn/error/critical always on."""
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from configwrap.structure import Structure
-from configwrap.formats import JsonFormat, ConfFormat, get_format_for_path, FormatHandler
+from configwrap.formats import (
+    JsonFormat,
+    ConfFormat,
+    CssVarsFormat,
+    get_format_for_path,
+    FormatHandler,
+)
 
 core_config: Dict[str, Any] = {"debug": False}
 
@@ -21,11 +27,14 @@ def _fmt(format_or_none: Union[str, None], path: Path) -> FormatHandler:
         return JsonFormat()
     if format_or_none == "conf":
         return ConfFormat()
+    if format_or_none == "css":
+        return CssVarsFormat()
     return get_format_for_path(path)
 
 
 class Core:
-    """File + structure. format=None → from extension. debug=None → core_config."""
+    """File + structure. format=None → from extension. debug=None → core_config.
+    parent=path or Core: child data overrides parent (parent values merged first)."""
 
     def __init__(
         self,
@@ -33,11 +42,14 @@ class Core:
         structure: Union[Structure, Dict[str, Any]],
         format: Union[str, None] = None,
         debug: Union[bool, None] = None,
+        parent: Optional[Union["Core", str]] = None,
     ):
         self._path = Path(file_path)
         self._structure = Structure(structure) if isinstance(structure, dict) else structure
         self._handler = _fmt(format, self._path)
         self._debug = debug if debug is not None else core_config.get("debug", False)
+        self._parent_path: Optional[Path] = Path(parent) if isinstance(parent, str) else None
+        self._parent_core: Optional["Core"] = parent if isinstance(parent, Core) else None
         self._data: Dict[str, Any] = {}
         self.load()
 
@@ -70,12 +82,24 @@ class Core:
         _log.critical(msg, *args, **kwargs)
 
     def load(self) -> None:
+        parent_data: Dict[str, Any] = {}
+        if self._parent_core is not None:
+            parent_data = self._parent_core.get_all()
+            self._d(f"parent (Core) -> {len(parent_data)} keys")
+        elif self._parent_path is not None:
+            parent_handler = get_format_for_path(self._parent_path)
+            if self._parent_path.exists():
+                parent_data = self._structure.validate(parent_handler.load(self._parent_path))
+            else:
+                parent_data = self._structure.defaults().copy()
+            self._d(f"parent {self._parent_path} -> {len(parent_data)} keys")
         if self._path.exists():
             self._data = self._structure.validate(self._handler.load(self._path))
             self._d(f"load {self._path} -> {len(self._data)}")
         else:
             self._data = self._structure.defaults().copy()
             self._d(f"load (missing) -> default {len(self._data)}")
+        self._data = {**parent_data, **self._data}
 
     def save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)

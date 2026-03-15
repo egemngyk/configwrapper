@@ -14,6 +14,15 @@ VARS = {
     "ui.sidebar_width": 240,
 }
 
+CSS_BASE = BASE / "config" / "themes" / "base.css"
+CSS_THEME = BASE / "config" / "themes" / "app.css"
+CSS_VARS = {
+    "theme": "dark",
+    "font_size": 14,
+    "ui.accent_color": "#3498db",
+    "ui.sidebar_width": 240,
+}
+
 
 def main():
     c = Core(str(CONFIG), VARS)
@@ -29,5 +38,23 @@ def main():
     c.save()
 
 
+def main_css():
+    """CSS vars: parent base.css, child app.css. Değerler Python get/set ile."""
+    parent = Core(str(CSS_BASE), CSS_VARS, format="css")
+    theme = Core(str(CSS_THEME), CSS_VARS, format="css", parent=str(CSS_BASE))
+
+    theme.info("CSS theme (parent=base): %s", theme.file_path)
+    theme.info("  theme = %s", theme.get("theme"))
+    theme.info("  ui.accent_color = %s", theme.get("ui.accent_color"))
+
+    # Sadece override etmek istediğimizi set ediyoruz; diğerleri parent'tan kalır
+    theme.set("theme", "light")
+    theme.set("ui.accent_color", "#e74c3c")
+    theme.save()
+
+    theme.info("Saved app.css (parent değerleri + override'lar) -> :root { --var: value; }")
+
+
 if __name__ == "__main__":
     main()
+    main_css()
