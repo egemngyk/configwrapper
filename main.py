@@ -47,7 +47,6 @@ def main_css():
     theme.info("  theme = %s", theme.get("theme"))
     theme.info("  ui.accent_color = %s", theme.get("ui.accent_color"))
 
-    # Sadece override etmek istediğimizi set ediyoruz; diğerleri parent'tan kalır
     theme.set("theme", "light")
     theme.set("ui.accent_color", "#e74c3c")
     theme.save()
